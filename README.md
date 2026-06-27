@@ -1,44 +1,86 @@
-# SchnellVPN — راه‌اندازی بدون Android Studio (Build روی GitHub)
+# SchnellVPN
 
-با این روش، APK رو روی سرورهای رایگان GitHub می‌سازیم، نه روی کامپیوتر خودت.
+![Build](https://github.com/A-z-exe/SchnellVPN-/actions/workflows/build.yml/badge.svg)
+![License](https://img.shields.io/badge/license-Proprietary-blue)
+![Platform](https://img.shields.io/badge/platform-Android-green)
+![Kotlin](https://img.shields.io/badge/Kotlin-Jetpack%20Compose-7F52FF)
 
-## مرحله ۱ — حساب GitHub
-اگه نداری، یه حساب رایگان توی **github.com** بساز.
-
-## مرحله ۲ — ریپوی جدید
-روی github.com دکمه‌ی **New repository** رو بزن:
-- Repository name: `SchnellVPN`
-- Public یا Private — فرقی نمی‌کنه
-- هیچ گزینه‌ی اضافه‌ای (README، .gitignore) رو تیک نزن
-- **Create repository**
-
-## مرحله ۳ — فایل libv2ray.aar رو بگذار توی پوشه‌ی درست
-قبل از آپلود، فایل `libv2ray.aar` که قبلاً دانلود کرده بودی رو بریز داخل پوشه‌ی:
-```
-SchnellVPN/app/libs/
-```
-(این پوشه الان خالیه، فقط همین یک فایل رو بهش اضافه کن)
-
-## مرحله ۴ — همه‌چیز رو آپلود کن
-توی صفحه‌ی ریپوی خودت روی **"uploading an existing file"** کلیک کن.
-حالا کل پوشه‌ی `SchnellVPN` (که شامل `app/`, `.github/`, فایل‌های gradle و غیره‌ست) رو با مرورگر Chrome یا Edge **درگ‌اند‌دراپ** کن (می‌تونی کل پوشه رو بکشی، ساختار داخلیش حفظ می‌شه).
-
-بعد پایین صفحه دکمه‌ی **Commit changes** رو بزن.
-
-## مرحله ۵ — صبر کن تا Build تموم شه
-برو به تب **Actions** بالای صفحه‌ی ریپو. یه Workflow به اسم «Build SchnellVPN APK» می‌بینی که خودش شروع شده (چند دقیقه طول می‌کشه، معمولاً ۲-۵ دقیقه).
-
-وقتی علامت سبز ✅ زدش (یعنی تموم شد)، روش کلیک کن، پایین صفحه بخش **Artifacts** رو پیدا کن، و فایل **SchnellVPN-debug-apk** رو دانلود کن — یه zip حاوی فایل APK‌ـه.
-
-## مرحله ۶ — نصب روی گوشی
-فایل `.apk` داخل اون zip رو به گوشی اندرویدت منتقل کن (تلگرام به خودت بفرست، یا با کابل کپی کن) و نصبش کن. اگه اندروید پیام «منابع ناشناس» داد، اجازه‌ش رو بده.
+یک کلاینت VPN اختصاصی برای اندروید، با رابط کاربری مدرن و پشتیبانی از پروتکل‌های پرکاربرد امروزی.
 
 ---
 
-### اگه Build قرمز ❌ شد (یعنی خطا داد)
-روی Workflow کلیک کن، روی مرحله‌ای که قرمزه باز کن، و متن خطا رو کامل کپی کن و برام بفرست — با هم حلش می‌کنیم. معمولاً علتش یکی از این‌هاست:
-- فایل `libv2ray.aar` رو فراموش کردی بگذاری توی `app/libs/`
-- ساختار پوشه‌ها موقع آپلود به‌هم ریخته (مسیرها باید دقیقاً مثل چیزی که فرستادم باشه)
+## ✨ ویژگی‌ها
 
-### تغییر لینک سرورها
-قبل از هر بار آپلود/تغییر، فایل `app/src/main/java/com/schnellvpn/app/MainActivity.kt` رو باز کن و لینک‌های `vless://...` و بقیه رو با لینک واقعی سرورهات جایگزین کن، بعد دوباره Commit کن — هر بار Commit جدید، GitHub خودش دوباره Build می‌کنه.
+- ✅ رابط کاربری اختصاصی (Jetpack Compose) با حالت تاریک/روشن
+- ✅ پشتیبانی از پروتکل‌ها:
+  - VLESS (+ Reality)
+  - VMess
+  - Trojan
+  - Shadowsocks
+  - gRPC / WebSocket
+- ✅ وارد کردن لینک Subscription
+- ✅ اسکن QR Code
+- ✅ نمایش پینگ زنده‌ی سرورها
+- ✅ اتصال یک‌کلیکی
+- ✅ نمایش مدت اتصال و حجم مصرفی
+
+## 📱 اسکرین‌شات
+
+> *(بعداً اینجا چندتا اسکرین‌شات از اپ بگذار)*
+
+## 🧱 ساختار پروژه
+
+```
+SchnellVPN/
+├── .github/workflows/build.yml     # Build خودکار روی GitHub Actions
+├── app/
+│   ├── build.gradle.kts
+│   └── src/main/
+│       ├── AndroidManifest.xml
+│       └── java/com/schnellvpn/app/
+│           ├── MainActivity.kt          # رابط کاربری (Compose)
+│           ├── SchnellVpnService.kt     # VpnService + اتصال به Xray-core
+│           ├── XrayConfigBuilder.kt     # پارس‌کننده‌ی لینک‌ها (ConfigParser)
+│           └── Server.kt                # مدل داده‌ی سرور
+├── build.gradle.kts
+├── settings.gradle.kts
+└── gradle.properties
+```
+
+## ⚙️ هسته‌ی شبکه
+
+این پروژه از کتابخونه‌ی متن‌باز [AndroidLibXrayLite](https://github.com/2dust/AndroidLibXrayLite) (لایسنس LGPL-3.0) برای پیاده‌سازی واقعی پروتکل‌های VLESS/VMess/Trojan/Shadowsocks استفاده می‌کنه. این فایل (`libv2ray.aar`) به‌صورت خودکار توی مرحله‌ی Build از ریلیزهای رسمی همون ریپو دانلود می‌شه — نیازی به آپلود دستیش نیست.
+
+## 🚀 ساخت و اجرا
+
+### روش ۱ — Build ابری (بدون نیاز به نصب چیزی روی کامپیوتر)
+هر بار که تغییری Commit بشه، GitHub Actions خودش پروژه رو می‌سازه. برای دریافت APK:
+1. برو تب **Actions**
+2. آخرین Workflow موفق (✅ سبز) رو باز کن
+3. از بخش **Artifacts**، فایل APK رو دانلود کن
+
+### روش ۲ — Build محلی (اگه Android Studio نصب داری)
+```bash
+git clone https://github.com/A-z-exe/SchnellVPN-.git
+cd SchnellVPN-
+./gradlew assembleDebug
+```
+خروجی APK اینجا قرار می‌گیره:
+```
+app/build/outputs/apk/debug/app-debug.apk
+```
+
+## 🔐 تنظیم سرورها
+
+لینک‌های واقعی سرورهات رو توی فایل زیر جایگزین مقدارهای نمونه کن:
+```
+app/src/main/java/com/schnellvpn/app/MainActivity.kt
+```
+
+## 📄 مجوز
+
+این پروژه برای استفاده‌ی داخلی/تجاری ساخته شده. کتابخونه‌ی `AndroidLibXrayLite` که به‌عنوان dependency استفاده می‌شه، تحت لایسنس **LGPL-3.0** منتشر شده؛ جزئیات رو در [ریپوی اصلی](https://github.com/2dust/AndroidLibXrayLite) ببین.
+
+## ⚠️ هشدار مسئولیت
+
+استفاده از این اپ باید مطابق قوانین کشور محل استفاده‌ی کاربر باشه. توسعه‌دهنده مسئولیتی در قبال نحوه‌ی استفاده‌ی کاربران نهایی ندارد.

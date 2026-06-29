@@ -35,14 +35,13 @@ android {
         kotlinCompilerExtensionVersion = "1.5.14"
     }
 
-    // === فیکس نهایی packaging ===
+    // ==================== فیکس Packaging (مشکل libgojni.so) ====================
     packaging {
         resources {
             excludes += listOf(
                 "/META-INF/{AL2.0,LGPL2.1}",
                 "META-INF/INDEX.LIST",
-                "META-INF/*.kotlin_module",
-                "**/libgojni.so"   // مشکل اصلی
+                "META-INF/*.kotlin_module"
             )
         }
         jniLibs {
@@ -52,6 +51,7 @@ android {
 }
 
 dependencies {
+    // هسته‌ی Xray
     implementation(files("libs/libv2ray.aar"))
 
     implementation("androidx.core:core-ktx:1.13.1")

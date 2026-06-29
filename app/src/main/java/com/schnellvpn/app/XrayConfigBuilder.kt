@@ -9,9 +9,6 @@ import java.net.URLDecoder
 /**
  * این کلاس لینک‌های vless:// , vmess:// , trojan:// , ss:// رو می‌خونه
  * و کانفیگ JSON کامل Xray-core که برای StartLoop لازمه رو می‌سازه.
- *
- * توجه: این پیاده‌سازی پایه‌ست و موارد رایج (VLESS+Reality, VLESS+WS, VMESS, Trojan, Shadowsocks)
- * رو پوشش می‌ده. برای پروتکل‌ها/تنظیمات خیلی خاص ممکنه نیاز به تکمیل داشته باشه.
  */
 object XrayConfigBuilder {
 
@@ -21,6 +18,7 @@ object XrayConfigBuilder {
         val root = JSONObject()
         root.put("log", JSONObject().put("loglevel", "warning"))
 
+        // Inbounds
         val inbounds = JSONArray().put(
             JSONObject()
                 .put("tag", "socks-in")
@@ -31,10 +29,25 @@ object XrayConfigBuilder {
         )
         root.put("inbounds", inbounds)
 
+        // Outbounds
         val outbounds = JSONArray()
             .put(outbound)
             .put(JSONObject().put("tag", "direct").put("protocol", "freedom"))
         root.put("outbounds", outbounds)
+
+        // === Routing Rule - این بخش خیلی مهمه ===
+        val routing = JSONObject().apply {
+            put("domainStrategy", "AsIs")
+            val rules = JSONArray().put(
+                JSONObject().apply {
+                    put("type", "field")
+                    put("network", "tcp,udp")
+                    put("outboundTag", "proxy")
+                }
+            )
+            put("rules", rules)
+        }
+        root.put("routing", routing)
 
         return root.toString()
     }
@@ -47,7 +60,7 @@ object XrayConfigBuilder {
         else -> throw IllegalArgumentException("پروتکل پشتیبانی نمی‌شود: $link")
     }
 
-    // ---------------- VLESS ----------------
+    // ==================== VLESS ====================
     private fun parseVless(link: String): JSONObject {
         val uri = URI(link)
         val uuid = uri.userInfo
@@ -104,7 +117,7 @@ object XrayConfigBuilder {
             .put("streamSettings", streamSettings)
     }
 
-    // ---------------- VMESS ----------------
+    // ==================== VMESS ====================
     private fun parseVmess(link: String): JSONObject {
         val raw = link.removePrefix("vmess://")
         val json = String(Base64.decode(raw, Base64.DEFAULT))
@@ -147,7 +160,7 @@ object XrayConfigBuilder {
             .put("streamSettings", streamSettings)
     }
 
-    // ---------------- TROJAN ----------------
+    // ==================== TROJAN ====================
     private fun parseTrojan(link: String): JSONObject {
         val uri = URI(link)
         val password = uri.userInfo
@@ -174,7 +187,7 @@ object XrayConfigBuilder {
             .put("streamSettings", streamSettings)
     }
 
-    // ---------------- SHADOWSOCKS ----------------
+    // ==================== SHADOWSOCKS ====================
     private fun parseShadowsocks(link: String): JSONObject {
         val body = link.removePrefix("ss://").substringBefore("#")
         val atIndex = body.lastIndexOf('@')

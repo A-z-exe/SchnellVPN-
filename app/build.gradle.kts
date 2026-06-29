@@ -34,10 +34,24 @@ android {
     composeOptions {
         kotlinCompilerExtensionVersion = "1.5.14"
     }
+
+    // ==================== فیکس Packaging ====================
+    packaging {
+        resources {
+            excludes += listOf(
+                "/META-INF/{AL2.0,LGPL2.1}",
+                "META-INF/INDEX.LIST",
+                "META-INF/*.kotlin_module"
+            )
+        }
+        jniLibs {
+            useLegacyPackaging = true
+        }
+    }
 }
 
 dependencies {
-    // هسته‌ی Xray — همون فایلی که دانلود کردی، باید توی app/libs/ باشه
+    // هسته‌ی Xray
     implementation(files("libs/libv2ray.aar"))
 
     implementation("androidx.core:core-ktx:1.13.1")

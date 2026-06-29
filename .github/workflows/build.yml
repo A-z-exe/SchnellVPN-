@@ -23,9 +23,6 @@ jobs:
         with:
           gradle-version: '8.9'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
       - name: Download libv2ray.aar
         run: |
           mkdir -p app/libs
@@ -33,7 +30,9 @@ jobs:
             https://github.com/2dust/AndroidLibXrayLite/releases/latest/download/libv2ray.aar
 
       - name: Build debug APK
-        run: gradle assembleDebug
+        run: gradle assembleDebug --no-daemon
+        env:
+          ANDROID_HOME: ${{ env.ANDROID_HOME }}
 
       - name: Upload APK
         uses: actions/upload-artifact@v4

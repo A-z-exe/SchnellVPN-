@@ -1,60 +1,108 @@
 package com.schnellvpn.app
 
 import android.util.Base64
+import android.util.Log
 import org.json.JSONObject
+import java.io.BufferedInputStream
+import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URI
 import java.net.URL
 import java.net.URLDecoder
+import java.nio.charset.StandardCharsets
 
 /**
- * این فایل لینک Subscription رو می‌گیره، از اینترنت دانلودش می‌کنه،
- * و لیست واقعی سرورها (vless/vmess/trojan/ss) رو ازش استخراج می‌کنه.
- * دیگه هیچ کانفیگ نمونه/الکی توی اپ نیست — هرچی نشون داده می‌شه از همین لینک میاد.
+ * دانلود و پارس لینک‌های Subscription. این نسخه پایدارتر است و:
+ * - تایم‌اوت‌ها و ری‌دایرکت‌ها را بهتر هندل می‌کند
+ * - تشخیص Base64 و محتوای خط‌به‌خط قوی‌تر است
+ * - خطاها را لاگ می‌کند تا دلایل شکست واضح باشد
  */
 object SubscriptionFetcher {
+    private const val TAG = "SubscriptionFetcher"
 
     fun fetchAndParse(subUrl: String): List<VpnServer> {
-        val raw = download(subUrl)
-        val decoded = decodeIfBase64(raw)
-        val links = decoded.lines()
-            .map { it.trim() }
-            .filter {
-                it.startsWith("vless://") || it.startsWith("vmess://") ||
-                it.startsWith("trojan://") || it.startsWith("ss://")
-            }
+        val raw = try {
+            download(subUrl)
+        } catch (e: Exception) {
+            Log.e(TAG, "download failed: ${e.message}")
+            throw e
+        }
 
-        return links.mapIndexedNotNull { index, link ->
-            try {
-                val (flag, name, proto) = describeLink(link)
-                VpnServer(id = index + 1, flag = flag, name = name, protocolLabel = proto, link = link, pingMs = null)
-            } catch (e: Exception) {
-                null
+        val decoded = decodeIfBase64(raw)
+
+        // Extract lines and also scan for inline links anywhere in the text
+        val lines = decoded.lines().map { it.trim() }.filter { it.isNotEmpty() }
+
+        val protocolRegex = Regex("(?i)(vless://|vmess://|trojan://|ss://)[^\\s]+")
+        val found = mutableListOf<String>()
+
+        // find explicit protocol occurrences
+        for (line in lines) {
+            protocolRegex.findAll(line).forEach { m ->
+                found.add(m.value)
             }
         }
+
+        // fallback: if nothing found, try original raw lines that look like links
+        if (found.isEmpty()) {
+            for (line in lines) {
+                if (line.startsWith("vless://") || line.startsWith("vmess://") || line.startsWith("trojan://") || line.startsWith("ss://")) {
+                    found.add(line)
+                }
+            }
+        }
+
+        val result = mutableListOf<VpnServer>()
+        var idCounter = 1
+        for (link in found) {
+            try {
+                val (flag, name, proto) = describeLink(link)
+                result.add(VpnServer(id = idCounter++, flag = flag, name = name, protocolLabel = proto, link = link, pingMs = null))
+            } catch (e: Exception) {
+                Log.w(TAG, "skipping link due to parse error: ${e.message}")
+            }
+        }
+
+        return result
     }
 
     private fun download(urlStr: String): String {
-        val conn = URL(urlStr).openConnection() as HttpURLConnection
-        conn.connectTimeout = 9000
-        conn.readTimeout = 9000
-        conn.requestMethod = "GET"
-        conn.setRequestProperty("User-Agent", "SchnellVPN/1.0")
-        return try {
-            conn.inputStream.bufferedReader().readText()
+        val url = URL(urlStr)
+        val conn = (url.openConnection() as HttpURLConnection).apply {
+            connectTimeout = 9000
+            readTimeout = 9000
+            instanceFollowRedirects = true
+            requestMethod = "GET"
+            setRequestProperty("User-Agent", "SchnellVPN/1.0")
+            // Some subscription endpoints require Host header or others; keep minimal for now
+        }
+
+        try {
+            val code = conn.responseCode
+            if (code !in 200..299) throw RuntimeException("HTTP $code")
+            conn.inputStream.use { input ->
+                return input.bufferedReader(StandardCharsets.UTF_8).readText()
+            }
         } finally {
-            conn.disconnect()
+            try { conn.disconnect() } catch (_: Throwable) {}
         }
     }
 
     private fun decodeIfBase64(body: String): String {
         val clean = body.trim()
+        if (clean.isEmpty()) return clean
+        // Heuristics: if the body contains newlines but looks like base64 (no spaces, mostly A-Za-z0-9+/=)
+        val candidate = clean.replace("\n", "").replace("\r", "").trim()
+        val isLikelyBase64 = candidate.length > 16 && candidate.matches(Regex("^[A-Za-z0-9+/=\\s]+$"))
+        if (!isLikelyBase64) return clean
+
         return try {
-            val candidate = clean.replace("\n", "").replace("\r", "").replace(" ", "")
-            val decodedBytes = Base64.decode(candidate, Base64.DEFAULT)
-            val text = String(decodedBytes)
-            if (text.contains("://")) text else clean
+            val padded = padBase64(candidate)
+            val decodedBytes = Base64.decode(padded, Base64.DEFAULT)
+            val text = String(decodedBytes, StandardCharsets.UTF_8)
+            if (text.contains("vless://") || text.contains("vmess://") || text.contains("trojan://") || text.contains("ss://")) text else clean
         } catch (e: Exception) {
+            Log.w(TAG, "base64 decode failed: ${e.message}")
             clean
         }
     }
@@ -62,7 +110,9 @@ object SubscriptionFetcher {
     private fun describeLink(link: String): Triple<String, String, String> {
         return when {
             link.startsWith("vmess://") -> {
-                val json = JSONObject(String(Base64.decode(link.removePrefix("vmess://"), Base64.DEFAULT)))
+                val raw = link.removePrefix("vmess://")
+                val jsonText = try { String(android.util.Base64.decode(padBase64(raw), Base64.DEFAULT)) } catch (e: Exception) { throw IllegalArgumentException("invalid vmess payload") }
+                val json = JSONObject(jsonText)
                 val remark = json.optString("ps").ifBlank { json.optString("add", "VMess Server") }
                 val net = json.optString("net", "tcp").uppercase()
                 val tls = if (json.optString("tls") == "tls") " · TLS" else ""
@@ -70,10 +120,10 @@ object SubscriptionFetcher {
                 Triple(flag, name, "VMess · $net$tls")
             }
             else -> {
-                val uri = URI(link)
-                val remark = uri.rawFragment?.let { URLDecoder.decode(it, "UTF-8") }
-                    ?: uri.host ?: "سرور"
-                val params = (uri.rawQuery ?: "").split("&").mapNotNull {
+                val uri = try { URI(link) } catch (e: Exception) { throw IllegalArgumentException("malformed uri") }
+                val remark = uri.rawFragment?.let { URLDecoder.decode(it, "UTF-8") } ?: uri.host ?: "سرور"
+                val rawQuery = uri.rawQuery ?: ""
+                val params = rawQuery.split("&").mapNotNull {
                     val i = it.indexOf("=")
                     if (i < 0) null else it.substring(0, i) to URLDecoder.decode(it.substring(i + 1), "UTF-8")
                 }.toMap()
@@ -95,7 +145,12 @@ object SubscriptionFetcher {
         }
     }
 
-    // اگه اسمِ سرور با یه ایموجی پرچم شروع شده باشه (که توی اکثر Subscription ها رایجه)، جداش می‌کنیم
+    private fun padBase64(s: String): String {
+        val clean = s.trim()
+        val mod = clean.length % 4
+        return if (mod == 0) clean else clean + "=".repeat(4 - mod)
+    }
+
     private fun splitFlag(remark: String): Pair<String, String> {
         if (remark.isEmpty()) return "🌐" to "سرور"
         return try {
@@ -108,6 +163,7 @@ object SubscriptionFetcher {
                 "🌐" to remark
             }
         } catch (e: Exception) {
+            Log.w(TAG, "splitFlag failed: ${e.message}")
             "🌐" to remark
         }
     }

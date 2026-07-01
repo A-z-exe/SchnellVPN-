@@ -5,15 +5,26 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URI
 import java.net.URLDecoder
+import java.util.UUID
 
 /**
  * این کلاس لینک‌های vless:// , vmess:// , trojan:// , ss:// رو می‌خونه
  * و کانفیگ JSON کامل Xray-core که برای StartLoop لازمه رو می‌سازه.
+ *
+ * بازنویسی شده تا ورودی‌ها با اعتبارسنجی بیشتری پردازش شوند و خطاهای
+ * پارس شدن شفاف‌تر باشند.
  */
 object XrayConfigBuilder {
 
     fun buildConfig(link: String, socksPort: Int = 10808): String {
-        val outbound = parseLinkToOutbound(link.trim())
+        val trimmed = link.trim()
+        if (trimmed.isEmpty()) throw IllegalArgumentException("link is empty")
+
+        val outbound = try {
+            parseLinkToOutbound(trimmed)
+        } catch (e: Exception) {
+            throw IllegalArgumentException("invalid link format: ${e.message}")
+        }
 
         val root = JSONObject()
         root.put("log", JSONObject().put("loglevel", "warning"))
@@ -57,15 +68,18 @@ object XrayConfigBuilder {
         link.startsWith("vmess://") -> parseVmess(link)
         link.startsWith("trojan://") -> parseTrojan(link)
         link.startsWith("ss://") -> parseShadowsocks(link)
-        else -> throw IllegalArgumentException("پروتکل پشتیبانی نمی‌شود: $link")
+        else -> throw IllegalArgumentException("unsupported protocol: $link")
     }
 
     // ==================== VLESS ====================
     private fun parseVless(link: String): JSONObject {
-        val uri = URI(link)
-        val uuid = uri.userInfo
-        val address = uri.host
-        val port = uri.port
+        val uri = try { URI(link) } catch (e: Exception) { throw IllegalArgumentException("malformed vless uri") }
+        val uuid = uri.userInfo ?: throw IllegalArgumentException("missing uuid in vless link")
+        // validate uuid
+        try { UUID.fromString(uuid) } catch (e: Exception) { /* not fatal: some providers use non-hyphen format */ }
+
+        val address = uri.host ?: throw IllegalArgumentException("missing host in vless link")
+        val port = if (uri.port > 0) uri.port else 443
         val params = parseQuery(uri.rawQuery)
 
         val network = params["type"] ?: "tcp"
@@ -120,8 +134,12 @@ object XrayConfigBuilder {
     // ==================== VMESS ====================
     private fun parseVmess(link: String): JSONObject {
         val raw = link.removePrefix("vmess://")
-        val json = String(Base64.decode(raw, Base64.DEFAULT))
-        val obj = JSONObject(json)
+        val json = try {
+            val padded = padBase64(raw)
+            String(Base64.decode(padded, Base64.DEFAULT))
+        } catch (e: Exception) { throw IllegalArgumentException("invalid vmess base64: ${e.message}") }
+
+        val obj = try { JSONObject(json) } catch (e: Exception) { throw IllegalArgumentException("vmess json parse failed") }
 
         val network = obj.optString("net", "tcp")
         val streamSettings = JSONObject().put("network", network)
@@ -144,13 +162,13 @@ object XrayConfigBuilder {
         }
 
         val user = JSONObject()
-            .put("id", obj.getString("id"))
+            .put("id", obj.optString("id"))
             .put("alterId", obj.optInt("aid", 0))
             .put("security", "auto")
 
         val vnext = JSONObject()
-            .put("address", obj.getString("add"))
-            .put("port", obj.getString("port").toInt())
+            .put("address", obj.optString("add"))
+            .put("port", obj.optString("port").toIntOrNull() ?: 443)
             .put("users", JSONArray().put(user))
 
         return JSONObject()
@@ -162,8 +180,8 @@ object XrayConfigBuilder {
 
     // ==================== TROJAN ====================
     private fun parseTrojan(link: String): JSONObject {
-        val uri = URI(link)
-        val password = uri.userInfo
+        val uri = try { URI(link) } catch (e: Exception) { throw IllegalArgumentException("malformed trojan uri") }
+        val password = uri.userInfo ?: throw IllegalArgumentException("missing password in trojan link")
         val params = parseQuery(uri.rawQuery)
 
         val streamSettings = JSONObject()
@@ -176,8 +194,8 @@ object XrayConfigBuilder {
             )
 
         val server = JSONObject()
-            .put("address", uri.host)
-            .put("port", uri.port)
+            .put("address", uri.host ?: throw IllegalArgumentException("missing host in trojan link"))
+            .put("port", if (uri.port > 0) uri.port else 443)
             .put("password", password)
 
         return JSONObject()
@@ -189,23 +207,25 @@ object XrayConfigBuilder {
 
     // ==================== SHADOWSOCKS ====================
     private fun parseShadowsocks(link: String): JSONObject {
+        // handle ss://base64@host:port or ss://method:pass@host:port or ss://base64#tag
         val body = link.removePrefix("ss://").substringBefore("#")
         val atIndex = body.lastIndexOf('@')
         val userInfoRaw = if (atIndex >= 0) body.substring(0, atIndex) else ""
         val hostPort = if (atIndex >= 0) body.substring(atIndex + 1) else body
 
-        val userInfo = try {
-            String(Base64.decode(userInfoRaw, Base64.DEFAULT))
-        } catch (e: Exception) {
+        val userInfo = if (userInfoRaw.isNotEmpty() && userInfoRaw.contains(":")) {
             userInfoRaw
-        }
+        } else if (userInfoRaw.isNotEmpty()) {
+            try { String(Base64.decode(padBase64(userInfoRaw), Base64.DEFAULT)) } catch (_: Exception) { userInfoRaw }
+        } else ""
+
         val parts = userInfo.split(":", limit = 2)
         val method = parts.getOrElse(0) { "aes-256-gcm" }
         val password = parts.getOrElse(1) { "" }
 
         val cleanHostPort = hostPort.substringBefore("?")
         val hpParts = cleanHostPort.split(":", limit = 2)
-        val host = hpParts.getOrElse(0) { "" }
+        val host = hpParts.getOrElse(0) { throw IllegalArgumentException("missing host in ss link") }
         val port = hpParts.getOrElse(1) { "443" }.toIntOrNull() ?: 443
 
         val server = JSONObject()
@@ -231,5 +251,10 @@ object XrayConfigBuilder {
                 key to value
             }
         }.toMap()
+    }
+
+    private fun padBase64(s: String): String {
+        val mod = s.length % 4
+        return if (mod == 0) s else s + "=".repeat(4 - mod)
     }
 }

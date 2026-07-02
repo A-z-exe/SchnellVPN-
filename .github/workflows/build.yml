@@ -21,14 +21,6 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install Android NDK 26
-        run: sdkmanager --install "ndk;26.3.11579264"
-
-      - name: Clone hev-socks5-tunnel (tun2socks bridge)
-        run: |
-          git clone --recursive https://github.com/heiher/hev-socks5-tunnel \
-            app/src/main/jni/hev-socks5-tunnel
-
       - name: Download libv2ray.aar
         run: |
           mkdir -p app/libs
@@ -37,9 +29,9 @@ jobs:
           ls -lh app/libs/libv2ray.aar
 
       - name: Build debug APK
-        run: gradle assembleDebug 2>&1 | grep -E "error:|e:|Unresolved|Cannot|not found" | head -30 || gradle assembleDebug
-        env:
-          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/26.3.11579264
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4

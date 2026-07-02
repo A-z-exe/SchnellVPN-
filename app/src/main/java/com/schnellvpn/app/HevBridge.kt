@@ -1,48 +1,111 @@
 package com.schnellvpn.app
 
 import android.util.Log
+import java.util.concurrent.atomic.AtomicBoolean
 
 object HevBridge {
+
     private const val TAG = "HevBridge"
-    private var loaded = false
+
+    private val loaded = AtomicBoolean(false)
+    private val running = AtomicBoolean(false)
 
     fun load(): Boolean {
-        if (loaded) return true
+        if (loaded.get()) return true
+
         return try {
             System.loadLibrary("hev-socks5-tunnel")
-            loaded = true
-            Log.d(TAG, "hev-socks5-tunnel loaded OK")
+            loaded.set(true)
+            Log.i(TAG, "Native library loaded.")
             true
         } catch (e: UnsatisfiedLinkError) {
-            Log.e(TAG, "Failed to load hev-socks5-tunnel: ${e.message}")
+            Log.e(TAG, "Cannot load hev-socks5-tunnel", e)
             false
         }
     }
 
     fun startService(configPath: String, fd: Int): Boolean {
-        if (!load()) return false
+
+        if (!load())
+            return false
+
+        if (running.get()) {
+            Log.w(TAG, "Service already running.")
+            return true
+        }
+
         return try {
+
+            Log.d(TAG, "Starting tunnel...")
+            Log.d(TAG, "Config = $configPath")
+            Log.d(TAG, "FD = $fd")
+
             TProxyStartService(configPath, fd)
+
+            running.set(true)
+
+            Log.i(TAG, "Tunnel started.")
+
             true
-        } catch (e: Throwable) {
-            Log.e(TAG, "TProxyStartService failed: ${e.message}", e)
+
+        } catch (t: Throwable) {
+
+            running.set(false)
+
+            Log.e(TAG, "Failed starting tunnel.", t)
+
             false
         }
     }
 
     fun stopService() {
-        if (!loaded) return
-        try { TProxyStopService() }
-        catch (e: Throwable) { Log.e(TAG, "TProxyStopService failed: ${e.message}") }
+
+        if (!running.get())
+            return
+
+        try {
+
+            TProxyStopService()
+
+        } catch (t: Throwable) {
+
+            Log.e(TAG, "Stop failed.", t)
+
+        } finally {
+
+            running.set(false)
+
+        }
     }
+
+    fun isRunning(): Boolean = running.get()
 
     fun getStats(): LongArray? {
-        if (!loaded) return null
-        return try { TProxyGetStats() }
-        catch (e: Throwable) { null }
+
+        if (!running.get())
+            return null
+
+        return try {
+
+            TProxyGetStats()
+
+        } catch (t: Throwable) {
+
+            Log.e(TAG, "Stats failed.", t)
+
+            null
+        }
     }
 
-    @JvmStatic private external fun TProxyStartService(configPath: String, fd: Int)
-    @JvmStatic private external fun TProxyStopService()
-    @JvmStatic private external fun TProxyGetStats(): LongArray
+    @JvmStatic
+    private external fun TProxyStartService(
+        configPath: String,
+        fd: Int
+    )
+
+    @JvmStatic
+    private external fun TProxyStopService()
+
+    @JvmStatic
+    private external fun TProxyGetStats(): LongArray
 }

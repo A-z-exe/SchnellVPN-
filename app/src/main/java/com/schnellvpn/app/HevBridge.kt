@@ -9,7 +9,7 @@ object HevBridge {
     fun load(): Boolean {
         if (loaded) return true
         return try {
-            System.loadLibrary("hev-socks5-tunnel")
+            //System.loadLibrary("hev-socks5-tunnel")//
             loaded = true
             Log.d(TAG, "hev-socks5-tunnel loaded OK")
             true

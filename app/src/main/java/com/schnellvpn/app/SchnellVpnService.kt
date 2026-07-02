@@ -51,9 +51,9 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
 
         scope.launch {
             try {
+                Log.d(TAG, "startVpn: building config from link")
                 // 1) لینک -> کانفیگ JSON
                 val config = XrayConfigBuilder.buildConfig(link, socksPort = SOCKS_PORT)
-                Log.d(TAG, "Config built OK")
 
                 // 2) آماده‌سازی Xray
                 try {
@@ -72,9 +72,9 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
                     .setMtu(1500)
 
                 tunPfd = builder.establish()
-                    ?: throw IllegalStateException("TUN establish failed — اجازه‌ی VPN داده نشده")
+                    ?: throw IllegalStateException("TUN establish failed")
                 val tunFd = tunPfd!!.fd
-                Log.d(TAG, "TUN fd=$tunFd")
+                Log.d(TAG, "TUN fd=$tunFd established")
 
                 // 4) Xray-core به عنوان SOCKS5 proxy
                 coreCtrl = CoreController(this@SchnellVpnService)
@@ -100,13 +100,14 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
 
                 // 7) tun2socks — safe start
                 val hevOk = HevBridge.startService(hevConf.absolutePath, tunFd)
-                Log.d(TAG, "HevBridge.startService=$hevOk")
+                if (!hevOk) throw RuntimeException("HevBridge.startService failed")
+                Log.d(TAG, "HevBridge started successfully")
 
                 VpnStatus.isConnected.value = true
                 VpnStatus.connectStartMillis.value = System.currentTimeMillis()
                 withContext(Dispatchers.Main) { updateNotif("متصل شدید") }
 
-                // 8) polling آمار — با delay اول
+                // 8) polling آمار
                 delay(3000)
                 while (isActive && VpnStatus.isConnected.value) {
                     val s = HevBridge.getStats()
